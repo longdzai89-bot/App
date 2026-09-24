@@ -38,29 +38,28 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Add microphone permission
+      - name: Configure Android microphone
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
-          p = Path("android/app/src/main/AndroidManifest.xml")
-          s = p.read_text()
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          s = manifest.read_text()
 
-          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
+          permission = '<uses-permission android:name="android.permission.RECORD_AUDIO" />'
 
-          if "android.permission.RECORD_AUDIO" not in s:
-              s = s.replace(
-                  "<application",
-                  permission + "    <application",
-                  1
+          if permission not in s:
+              s = re.sub(
+                  r'(<manifest\b[^>]*>)',
+                  r'\1\n    ' + permission,
+                  s,
+                  count=1
               )
 
-          p.write_text(s)
-          print(p.read_text())
+          manifest.write_text(s)
           PY
 
-      - name: Configure microphone Activity
-        run: |
           MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n 1)
 
           if [ -z "$MAIN" ]; then
@@ -69,11 +68,6 @@ jobs:
           fi
 
           PACKAGE=$(grep '^package ' "$MAIN" | sed 's/package //;s/;//')
-
-          if [ -z "$PACKAGE" ]; then
-            echo "Could not detect Java package"
-            exit 1
-          fi
 
           cat > "$MAIN" <<JAVA
           package $PACKAGE;
@@ -89,7 +83,9 @@ jobs:
 
           public class MainActivity extends BridgeActivity {
 
-              private static final int MIC_PERMISSION_REQUEST = 1001;
+              private static final int MIC_PERMISSION_REQUEST = 5001;
+
+              private PermissionRequest pendingPermissionRequest;
 
               @Override
               public void onCreate(Bundle savedInstanceState) {
@@ -98,32 +94,40 @@ jobs:
                   WebView webView = getBridge().getWebView();
 
                   webView.setWebChromeClient(new WebChromeClient() {
+
                       @Override
-                      public void onPermissionRequest(final PermissionRequest request) {
+                      public void onPermissionRequest(
+                              final PermissionRequest request) {
+
                           runOnUiThread(() -> {
-                              if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+
+                              boolean wantsAudio = false;
+
+                              for (String resource : request.getResources()) {
+                                  if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                                      wantsAudio = true;
+                                      break;
+                                  }
+                              }
+
+                              if (!wantsAudio) {
+                                  request.deny();
+                                  return;
+                              }
+
+                              if (checkSelfPermission(
+                                      Manifest.permission.RECORD_AUDIO)
                                       == PackageManager.PERMISSION_GRANTED) {
 
-                                  String[] resources = request.getResources();
-
-                                  for (String resource : resources) {
-                                      if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
-                                          request.grant(
-                                              new String[]{
-                                                  PermissionRequest.RESOURCE_AUDIO_CAPTURE
-                                              }
-                                          );
-                                          return;
-                                      }
-                                  }
-
-                                  request.deny();
+                                  request.grant(new String[] {
+                                      PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                                  });
 
                               } else {
-                                  request.deny();
+                                  pendingPermissionRequest = request;
 
                                   requestPermissions(
-                                      new String[]{
+                                      new String[] {
                                           Manifest.permission.RECORD_AUDIO
                                       },
                                       MIC_PERMISSION_REQUEST
@@ -132,31 +136,50 @@ jobs:
                           });
                       }
                   });
+              }
 
-                  if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                          != PackageManager.PERMISSION_GRANTED) {
+              @Override
+              public void onRequestPermissionsResult(
+                      int requestCode,
+                      String[] permissions,
+                      int[] grantResults) {
 
-                      requestPermissions(
-                          new String[]{
-                              Manifest.permission.RECORD_AUDIO
-                          },
-                          MIC_PERMISSION_REQUEST
-                      );
+                  super.onRequestPermissionsResult(
+                          requestCode,
+                          permissions,
+                          grantResults
+                  );
+
+                  if (requestCode != MIC_PERMISSION_REQUEST) {
+                      return;
+                  }
+
+                  PermissionRequest request = pendingPermissionRequest;
+                  pendingPermissionRequest = null;
+
+                  if (request == null) {
+                      return;
+                  }
+
+                  if (grantResults.length > 0
+                          && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                      request.grant(new String[] {
+                          PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                      });
+
+                  } else {
+                      request.deny();
                   }
               }
           }
           JAVA
 
-          echo "Generated:"
-          cat "$MAIN"
-
-      - name: Verify microphone manifest
-        run: |
+          echo "===== MANIFEST ====="
           grep -n "RECORD_AUDIO" android/app/src/main/AndroidManifest.xml
 
-      - name: Build debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+          echo "===== MAIN ACTIVITY ====="
+          cat "$MAIN"
 
       - name: Build debug APK
         working-directory: android
