@@ -1,0 +1,1 @@
+Replace with a 1024x1024 PNG icon before release. GitHub Actions build is functional without a custom launcher icon.
