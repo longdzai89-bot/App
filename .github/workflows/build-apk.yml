@@ -54,6 +54,55 @@ jobs:
           p.write_text(s)
           PY
 
+      - name: Configure microphone runtime permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("android/app/src/main/java/com/micboost/app/MainActivity.java")
+          p.parent.mkdir(parents=True, exist_ok=True)
+
+          code = """package com.micboost.app;
+
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.os.Bundle;
+import android.webkit.PermissionRequest;
+
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    private static final int MIC_PERMISSION = 1001;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                new String[]{Manifest.permission.RECORD_AUDIO},
+                MIC_PERMISSION
+            );
+        }
+
+        getBridge().getWebView().setWebChromeClient(
+            new android.webkit.WebChromeClient() {
+                @Override
+                public void onPermissionRequest(final PermissionRequest request) {
+                    runOnUiThread(() -> {
+                        request.grant(request.getResources());
+                    });
+                }
+            }
+        );
+    }
+}
+"""
+
+          p.write_text(code)
+          PY
+
       - name: Build debug APK
         working-directory: android
         run: ./gradlew assembleDebug --stacktrace
