@@ -23,7 +23,7 @@ jobs:
       - name: Setup Node 22
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: '22'
           cache: npm
 
       - name: Install dependencies
@@ -46,62 +46,59 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
 
-          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\\n'
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
 
           if "android.permission.RECORD_AUDIO" not in s:
-              s = s.replace("<application", permission + "    <application", 1)
+              s = s.replace(
+                  "<application",
+                  permission + "    <application",
+                  1
+              )
 
           p.write_text(s)
+          print(p.read_text())
           PY
 
-      - name: Configure microphone runtime permission
+      - name: Configure microphone Activity
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
+          MAIN=$(find android/app/src/main/java -name MainActivity.java | head -n 1)
 
-          p = Path("android/app/src/main/java/com/micboost/app/MainActivity.java")
-          p.parent.mkdir(parents=True, exist_ok=True)
+          if [ -z "$MAIN" ]; then
+            echo "MainActivity.java not found"
+            exit 1
+          fi
 
-          code = """package com.micboost.app;
+          cat > "$MAIN" <<'JAVA'
+          package com.micboost.app;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
-import android.os.Bundle;
-import android.webkit.PermissionRequest;
+          import android.Manifest;
+          import android.content.pm.PackageManager;
+          import android.os.Bundle;
 
-import com.getcapacitor.BridgeActivity;
+          import com.getcapacitor.BridgeActivity;
 
-public class MainActivity extends BridgeActivity {
-    private static final int MIC_PERMISSION = 1001;
+          public class MainActivity extends BridgeActivity {
 
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+              private static final int MIC_PERMISSION_REQUEST = 1001;
 
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(
-                new String[]{Manifest.permission.RECORD_AUDIO},
-                MIC_PERMISSION
-            );
-        }
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
 
-        getBridge().getWebView().setWebChromeClient(
-            new android.webkit.WebChromeClient() {
-                @Override
-                public void onPermissionRequest(final PermissionRequest request) {
-                    runOnUiThread(() -> {
-                        request.grant(request.getResources());
-                    });
-                }
-            }
-        );
-    }
-}
-"""
+                  if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                          != PackageManager.PERMISSION_GRANTED) {
 
-          p.write_text(code)
-          PY
+                      requestPermissions(
+                          new String[]{Manifest.permission.RECORD_AUDIO},
+                          MIC_PERMISSION_REQUEST
+                      );
+                  }
+              }
+          }
+          JAVA
+
+          echo "Using MainActivity:"
+          cat "$MAIN"
 
       - name: Build debug APK
         working-directory: android
