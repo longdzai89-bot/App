@@ -46,10 +46,10 @@ jobs:
           p = Path("android/app/src/main/AndroidManifest.xml")
           s = p.read_text()
 
-          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n'
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\\n'
 
           if "android.permission.RECORD_AUDIO" not in s:
-              s = s.replace("<manifest ", "<manifest>\n" + permission, 1)
+              s = s.replace("<manifest", "<manifest\\n" + permission, 1)
 
           p.write_text(s)
           PY
