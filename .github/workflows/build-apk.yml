@@ -49,7 +49,7 @@ jobs:
           permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\\n'
 
           if "android.permission.RECORD_AUDIO" not in s:
-              s = s.replace("<manifest", "<manifest\\n" + permission, 1)
+              s = s.replace("<application", permission + "    <application", 1)
 
           p.write_text(s)
           PY
