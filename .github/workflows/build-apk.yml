@@ -68,12 +68,22 @@ jobs:
             exit 1
           fi
 
-          cat > "$MAIN" <<'JAVA'
-          package com.micboost.app;
+          PACKAGE=$(grep '^package ' "$MAIN" | sed 's/package //;s/;//')
+
+          if [ -z "$PACKAGE" ]; then
+            echo "Could not detect Java package"
+            exit 1
+          fi
+
+          cat > "$MAIN" <<JAVA
+          package $PACKAGE;
 
           import android.Manifest;
           import android.content.pm.PackageManager;
           import android.os.Bundle;
+          import android.webkit.PermissionRequest;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebView;
 
           import com.getcapacitor.BridgeActivity;
 
@@ -85,11 +95,51 @@ jobs:
               public void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
 
+                  WebView webView = getBridge().getWebView();
+
+                  webView.setWebChromeClient(new WebChromeClient() {
+                      @Override
+                      public void onPermissionRequest(final PermissionRequest request) {
+                          runOnUiThread(() -> {
+                              if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                                      == PackageManager.PERMISSION_GRANTED) {
+
+                                  String[] resources = request.getResources();
+
+                                  for (String resource : resources) {
+                                      if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) {
+                                          request.grant(
+                                              new String[]{
+                                                  PermissionRequest.RESOURCE_AUDIO_CAPTURE
+                                              }
+                                          );
+                                          return;
+                                      }
+                                  }
+
+                                  request.deny();
+
+                              } else {
+                                  request.deny();
+
+                                  requestPermissions(
+                                      new String[]{
+                                          Manifest.permission.RECORD_AUDIO
+                                      },
+                                      MIC_PERMISSION_REQUEST
+                                  );
+                              }
+                          });
+                      }
+                  });
+
                   if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                           != PackageManager.PERMISSION_GRANTED) {
 
                       requestPermissions(
-                          new String[]{Manifest.permission.RECORD_AUDIO},
+                          new String[]{
+                              Manifest.permission.RECORD_AUDIO
+                          },
                           MIC_PERMISSION_REQUEST
                       );
                   }
@@ -97,8 +147,16 @@ jobs:
           }
           JAVA
 
-          echo "Using MainActivity:"
+          echo "Generated:"
           cat "$MAIN"
+
+      - name: Verify microphone manifest
+        run: |
+          grep -n "RECORD_AUDIO" android/app/src/main/AndroidManifest.xml
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Build debug APK
         working-directory: android
